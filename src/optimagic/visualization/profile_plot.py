@@ -1,23 +1,27 @@
+import itertools
+
 import numpy as np
 import pandas as pd
-import plotly.express as px
 
 from optimagic.benchmarking.process_benchmark_results import (
     process_benchmark_results,
 )
-from optimagic.config import PLOTLY_TEMPLATE
+from optimagic.config import DEFAULT_PALETTE
+from optimagic.visualization.backends import line_plot
+from optimagic.visualization.plotting_utilities import LineData
 
 
 def profile_plot(
     problems,
     results,
     *,
+    backend="plotly",
     runtime_measure="n_evaluations",
     normalize_runtime=False,
     stopping_criterion="y",
     x_precision=1e-4,
     y_precision=1e-4,
-    template=PLOTLY_TEMPLATE,
+    template=None,
 ):
     """Compare optimizers over a problem set.
 
@@ -103,7 +107,18 @@ def profile_plot(
     )
     performance_profiles = for_each_alpha.groupby("alpha").mean().stack().reset_index()
 
-    fig = px.line(performance_profiles, x="alpha", y=0, color="algorithm")
+    palette = itertools.cycle(DEFAULT_PALETTE)
+
+    lines = []
+
+    for algorithm, data in performance_profiles.groupby("algorithm"):
+        line_data = LineData(
+            x=data["alpha"],
+            y=data[0],
+            name=algorithm,
+            color=next(palette),
+        )
+        lines.append(line_data)
 
     xlabels = {
         (
@@ -124,17 +139,23 @@ def profile_plot(
         ("n_batches", False): "Number of Batches",
     }
 
-    fig.update_layout(
-        xaxis_title=xlabels[(runtime_measure, normalize_runtime)],
-        yaxis_title="Share of Problems Solved",
-        title=None,
-        height=300,
-        width=500,
-        margin={"l": 10, "r": 10, "t": 30, "b": 10},
+    fig = line_plot(
+        lines=lines,
+        backend=backend,
         template=template,
+        legend_properties={"title": "Algorithm"},
+        xlabel=xlabels[(runtime_measure, normalize_runtime)],
+        ylabel="Share of Problems Solved",
     )
 
-    fig.add_hline(y=1)
+    # fig.update_layout(
+    #     title=None,
+    #     height=300,
+    #     width=500,
+    #     margin={"l": 10, "r": 10, "t": 30, "b": 10},
+    # )
+
+    # fig.add_hline(y=1)
     return fig
 
 

@@ -8,14 +8,14 @@ import numpy as np
 import plotly.graph_objects as go
 from pybaum import leaf_names, tree_flatten, tree_just_flatten, tree_unflatten
 
-from optimagic.config import PLOTLY_TEMPLATE
+from optimagic.config import DEFAULT_PALETTE
 from optimagic.logging.logger import LogReader, SQLiteLogOptions
 from optimagic.optimization.algorithm import Algorithm
 from optimagic.optimization.history import History
 from optimagic.optimization.optimize_result import OptimizeResult
 from optimagic.parameters.tree_registry import get_registry
 from optimagic.typing import IterationHistory, PyTree
-from optimagic.visualization.backends import get_plot_backend_class
+from optimagic.visualization.backends import line_plot
 from optimagic.visualization.plotting_utilities import LineData, get_palette_cycle
 
 BACKEND_TO_CRITERION_PLOT_LEGEND_PROPERTIES: dict[str, dict[str, Any]] = {
@@ -26,6 +26,9 @@ BACKEND_TO_CRITERION_PLOT_LEGEND_PROPERTIES: dict[str, dict[str, Any]] = {
         "x": 0.95,
     },
     "matplotlib": {
+        "loc": "upper right",
+    },
+    "seaborn": {
         "loc": "upper right",
     },
 }
@@ -67,15 +70,10 @@ def criterion_plot(
 
     """
     # ==================================================================================
-    # Get Plot Backend class
-
-    plot_cls = get_plot_backend_class(backend)
-
-    # ==================================================================================
     # Process inputs
 
     if palette is None:
-        palette = plot_cls.get_default_palette()
+        palette = DEFAULT_PALETTE
     palette_cycle = get_palette_cycle(palette)
 
     dict_of_optimize_results_or_paths = _harmonize_inputs_to_dict(results, names)
@@ -100,13 +98,15 @@ def criterion_plot(
     # ==================================================================================
     # Generate the figure
 
-    plot = plot_cls(template)
-
-    plot.add_lines(lines + multistart_lines)
-    plot.set_labels(xlabel="No. of criterion evaluations", ylabel="Criterion value")
-    plot.set_legend_properties(BACKEND_TO_CRITERION_PLOT_LEGEND_PROPERTIES[backend])
-
-    return plot.figure
+    fig = line_plot(
+        lines=lines + multistart_lines,
+        backend=backend,
+        template=template,
+        legend_properties=BACKEND_TO_CRITERION_PLOT_LEGEND_PROPERTIES.get(backend, {}),
+        xlabel="No. of criterion evaluations",
+        ylabel="Criterion value",
+    )
+    return fig
 
 
 def _harmonize_inputs_to_dict(
@@ -155,9 +155,11 @@ def _convert_key_to_str(key: Any) -> str:
 
 def params_plot(
     result,
+    backend="plotly",
     selector=None,
     max_evaluations=None,
-    template=PLOTLY_TEMPLATE,
+    template=None,
+    palette=None,
     show_exploration=False,
 ):
     """Plot the params history of an optimization.
@@ -203,6 +205,10 @@ def params_plot(
     else:
         history = data.history.params
 
+    if palette is None:
+        palette = DEFAULT_PALETTE
+    palette_cycle = get_palette_cycle(palette)
+
     # ==================================================================================
     # Create figure
     # ==================================================================================
@@ -221,25 +227,28 @@ def params_plot(
         names = [names[i] for i in selected]
         hist_arr = hist_arr[selected]
 
+    lines = []
     for name, data in zip(names, hist_arr, strict=False):
         if max_evaluations is not None and len(data) > max_evaluations:
             plot_data = data[:max_evaluations]
         else:
             plot_data = data
 
-        trace = go.Scatter(
+        line_data = LineData(
             x=np.arange(len(plot_data)),
             y=plot_data,
-            mode="lines",
+            color=next(palette_cycle),
             name=name,
         )
-        fig.add_trace(trace)
+        lines.append(line_data)
 
-    fig.update_layout(
+    fig = line_plot(
+        lines=lines,
+        backend=backend,
         template=template,
-        xaxis_title_text="No. of criterion evaluations",
-        yaxis_title_text="Parameter value",
-        legend={"yanchor": "top", "xanchor": "right", "y": 0.95, "x": 0.95},
+        legend_properties=BACKEND_TO_CRITERION_PLOT_LEGEND_PROPERTIES.get(backend, {}),
+        xlabel="No. of criterion evaluations",
+        ylabel="Parameter value",
     )
 
     return fig

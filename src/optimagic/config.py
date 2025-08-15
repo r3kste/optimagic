@@ -10,6 +10,18 @@ OPTIMAGIC_ROOT = Path(__file__).parent
 
 PLOTLY_TEMPLATE = "simple_white"
 PLOTLY_PALETTE = px.colors.qualitative.Set2
+DEFAULT_PALETTE = [
+    "#1F77B4",
+    "#FF7F0E",
+    "#2CA02C",
+    "#D62728",
+    "#9467BD",
+    "#8C564B",
+    "#E377C2",
+    "#7F7F7F",
+    "#BCBD22",
+    "#17BECF",
+]
 
 DEFAULT_N_CORES = 1
 
@@ -45,6 +57,9 @@ IS_BAYESOPT_INSTALLED = _is_installed("bayes_opt")
 # ======================================================================================
 
 IS_MATPLOTLIB_INSTALLED = _is_installed("matplotlib")
+IS_SEABORN_INSTALLED = _is_installed("seaborn")
+IS_BOKEH_INSTALLED = _is_installed("bokeh")
+IS_ALTAIR_INSTALLED = _is_installed("altair")
 
 
 # ======================================================================================

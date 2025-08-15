@@ -1,12 +1,28 @@
-import abc
 from typing import Any
 
-import plotly.express as px
 import plotly.graph_objects as go
 
-from optimagic.config import IS_MATPLOTLIB_INSTALLED
+from optimagic.config import (
+    IS_ALTAIR_INSTALLED,
+    IS_BOKEH_INSTALLED,
+    IS_MATPLOTLIB_INSTALLED,
+    IS_SEABORN_INSTALLED,
+)
 from optimagic.exceptions import InvalidPlottingBackendError, NotInstalledError
 from optimagic.visualization.plotting_utilities import LineData
+
+
+def _is_jupyter():
+    try:
+        from IPython import get_ipython
+
+        return (
+            get_ipython() is not None
+            and get_ipython().__class__.__name__ == "ZMQInteractiveShell"
+        )
+    except ImportError:
+        return False
+
 
 if IS_MATPLOTLIB_INSTALLED:
     import matplotlib as mpl
@@ -19,127 +35,216 @@ if IS_MATPLOTLIB_INSTALLED:
         plt.install_repl_displayhook()
         plt.ioff()
 
+if IS_SEABORN_INSTALLED:
+    import seaborn as sns
 
-class PlotBackend(abc.ABC):
-    is_available: bool
-    default_template: str
+if IS_BOKEH_INSTALLED:
+    from bokeh.io import curdoc, output_notebook
+    from bokeh.plotting import figure as bokeh_figure
 
-    @classmethod
-    @abc.abstractmethod
-    def get_default_palette(cls) -> list:
-        pass
+    if _is_jupyter():
+        output_notebook()
 
-    @abc.abstractmethod
-    def __init__(self, template: str | None):
-        if template is None:
-            template = self.default_template
-
-        self.template = template
-        self.figure: Any = None
-
-    @abc.abstractmethod
-    def add_lines(self, lines: list[LineData]) -> None:
-        pass
-
-    @abc.abstractmethod
-    def set_labels(self, xlabel: str | None = None, ylabel: str | None = None) -> None:
-        pass
-
-    @abc.abstractmethod
-    def set_legend_properties(self, legend_properties: dict[str, Any]) -> None:
-        pass
+if IS_ALTAIR_INSTALLED:
+    import altair as alt
+    import pandas as pd
 
 
-class PlotlyBackend(PlotBackend):
-    is_available: bool = True
-    default_template: str = "simple_white"
+def _line_plot_plotly(
+    lines: list[LineData],
+    *,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    fig = go.Figure()
 
-    @classmethod
-    def get_default_palette(cls) -> list:
-        return px.colors.qualitative.Set2
+    if template is not None:
+        fig.update_layout(template=template)
 
-    def __init__(self, template: str | None):
-        super().__init__(template)
-        self._fig = go.Figure()
-        self._fig.update_layout(template=self.template)
-        self.figure = self._fig
-
-    def add_lines(self, lines: list[LineData]) -> None:
-        for line in lines:
-            trace = go.Scatter(
+    for line in lines:
+        fig.add_trace(
+            go.Scatter(
                 x=line.x,
                 y=line.y,
-                name=line.name,
                 mode="lines",
-                line_color=line.color,
-                showlegend=line.show_in_legend,
-                connectgaps=True,
+                name=line.name,
+                line=dict(color=line.color),
             )
-            self._fig.add_trace(trace)
+        )
 
-    def set_labels(self, xlabel: str | None = None, ylabel: str | None = None) -> None:
-        self._fig.update_layout(xaxis_title_text=xlabel, yaxis_title_text=ylabel)
+    fig.update_layout(
+        legend=legend_properties,
+        xaxis_title=xlabel,
+        yaxis_title=ylabel,
+    )
 
-    def set_legend_properties(self, legend_properties: dict[str, Any]) -> None:
-        self._fig.update_layout(legend=legend_properties)
-
-
-class MatplotlibBackend(PlotBackend):
-    is_available: bool = IS_MATPLOTLIB_INSTALLED
-    default_template: str = "default"
-
-    @classmethod
-    def get_default_palette(cls) -> list:
-        return [mpl.colormaps["Set2"](i) for i in range(mpl.colormaps["Set2"].N)]
-
-    def __init__(self, template: str | None):
-        super().__init__(template)
-        plt.style.use(self.template)
-        self._fig, self._ax = plt.subplots()
-        self.figure = self._fig
-
-    def add_lines(self, lines: list[LineData]) -> None:
-        for line in lines:
-            self._ax.plot(
-                line.x,
-                line.y,
-                color=line.color,
-                label=line.name if line.show_in_legend else None,
-            )
-
-    def set_labels(self, xlabel: str | None = None, ylabel: str | None = None) -> None:
-        self._ax.set(xlabel=xlabel, ylabel=ylabel)
-
-    def set_legend_properties(self, legend_properties: dict[str, Any]) -> None:
-        self._ax.legend(**legend_properties)
+    return fig
 
 
-PLOT_BACKEND_CLASSES = {
-    "plotly": PlotlyBackend,
-    "matplotlib": MatplotlibBackend,
+def _line_plot_matplotlib(
+    lines: list[LineData],
+    *,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    if not IS_MATPLOTLIB_INSTALLED:
+        raise NotInstalledError("Matplotlib is not installed...")
+
+    if template is not None:
+        plt.style.use(template)
+
+    fig, ax = plt.subplots()
+
+    for line in lines:
+        ax.plot(
+            line.x,
+            line.y,
+            label=line.name if line.show_in_legend else None,
+            color=line.color,
+        )
+
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    ax.legend(**legend_properties)
+
+    return fig
+
+
+def _line_plot_seaborn(
+    lines: list[LineData],
+    *,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    if not IS_SEABORN_INSTALLED:
+        raise NotInstalledError("Seaborn is not installed...")
+
+    if template is not None:
+        sns.set_theme(style=template)
+
+    fig, ax = plt.subplots()
+
+    for line in lines:
+        sns.lineplot(
+            x=line.x,
+            y=line.y,
+            label=line.name if line.show_in_legend else None,
+            color=line.color,
+            ax=ax,
+        )
+
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    ax.legend(**legend_properties)
+
+    return fig
+
+
+def _line_plot_bokeh(
+    lines: list[LineData],
+    *,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    if not IS_BOKEH_INSTALLED:
+        raise NotInstalledError("Bokeh is not installed...")
+
+    if template is not None:
+        curdoc().theme = template
+
+    fig = bokeh_figure(title="Line Plot", x_axis_label=xlabel, y_axis_label=ylabel)
+
+    for line in lines:
+        fig.line(
+            line.x,
+            line.y,
+            legend_label=line.name if line.show_in_legend else None,
+            line_color=line.color,
+        )
+
+    if legend_properties:
+        for prop, value in legend_properties.items():
+            if hasattr(fig.legend, prop):
+                setattr(fig.legend, prop, value)
+
+    return fig
+
+
+def _line_plot_altair(
+    lines: list[LineData],
+    *,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    if not IS_ALTAIR_INSTALLED:
+        raise NotInstalledError("Altair is not installed...")
+
+    if template is not None:
+        alt.themes.enable(template)
+
+    data = pd.DataFrame(
+        {
+            "x": [point for line in lines for point in line.x],
+            "y": [point for line in lines for point in line.y],
+            "name": [line.name for line in lines for _ in line.x],
+            "color": [line.color for line in lines for _ in line.x],
+        }
+    )
+
+    chart = (
+        alt.Chart(data)
+        .mark_line()
+        .encode(
+            x=alt.X("x", title=xlabel),
+            y=alt.Y("y", title=ylabel),
+            color=alt.Color("color"),
+            tooltip=["name"],
+        )
+    )
+
+    return chart
+
+
+BACKEND_TO_LINE_PLOT_FUNC = {
+    "plotly": _line_plot_plotly,
+    "matplotlib": _line_plot_matplotlib,
+    "seaborn": _line_plot_seaborn,
+    "bokeh": _line_plot_bokeh,
+    "altair": _line_plot_altair,
 }
 
 
-def get_plot_backend_class(backend_name: str) -> type[PlotBackend]:
-    if backend_name not in PLOT_BACKEND_CLASSES:
-        msg = (
-            f"Invalid backend name '{backend_name}'. "
-            f"Supported backends are: {', '.join(PLOT_BACKEND_CLASSES.keys())}."
+def line_plot(
+    lines: list[LineData],
+    *,
+    backend: str,
+    template: str | None,
+    legend_properties: dict[str, Any] | None,
+    xlabel: str | None,
+    ylabel: str | None,
+) -> Any:
+    # check for valid backend
+    if backend not in BACKEND_TO_LINE_PLOT_FUNC:
+        raise InvalidPlottingBackendError(
+            f"Invalid plotting backend '{backend}'. "
+            f"Available backends: {', '.join(BACKEND_TO_LINE_PLOT_FUNC.keys())}."
         )
-        raise InvalidPlottingBackendError(msg)
 
-    return _get_backend_if_installed(backend_name)
+    _line_plot_backend_function = BACKEND_TO_LINE_PLOT_FUNC[backend]
+    fig = _line_plot_backend_function(
+        lines=lines,
+        template=template,
+        legend_properties=legend_properties,
+        xlabel=xlabel,
+        ylabel=ylabel,
+    )
 
-
-def _get_backend_if_installed(backend_name: str) -> type[PlotBackend]:
-    plot_cls = PLOT_BACKEND_CLASSES[backend_name]
-
-    if not plot_cls.is_available:
-        msg = (
-            f"The '{backend_name}' backend is not installed. "
-            f"Install the package using either 'pip install {backend_name}' or "
-            f"'conda install -c conda-forge {backend_name}'"
-        )
-        raise NotInstalledError(msg)
-
-    return plot_cls
+    return fig

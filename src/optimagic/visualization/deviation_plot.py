@@ -1,20 +1,22 @@
 import pandas as pd
-import plotly.express as px
 
 from optimagic.benchmarking.process_benchmark_results import (
     process_benchmark_results,
 )
-from optimagic.config import PLOTLY_TEMPLATE
+from optimagic.config import DEFAULT_PALETTE
+from optimagic.visualization.backends import line_plot
+from optimagic.visualization.plotting_utilities import LineData, get_palette_cycle
 
 
 def deviation_plot(
     problems,
     results,
     *,
+    backend="plotly",
     runtime_measure="n_evaluations",
     distance_measure="criterion",
     monotone=True,
-    template=PLOTLY_TEMPLATE,
+    template=None,
 ):
     """Plot average convergence of optimizers for a set of problems.
 
@@ -76,7 +78,18 @@ def deviation_plot(
         .mean(numeric_only=True)[outcome]
         .reset_index()
     )
-    fig = px.line(average_deviations, x=runtime_measure, y=outcome, color="algorithm")
+
+    palette_cycle = get_palette_cycle(DEFAULT_PALETTE)
+    lines = []
+
+    for algorithm, data in average_deviations.groupby("algorithm"):
+        line_data = LineData(
+            x=data[runtime_measure],
+            y=data[outcome],
+            name=algorithm,
+            color=next(palette_cycle),
+        )
+        lines.append(line_data)
 
     y_labels = {
         "criterion_normalized": "Share of Function Distance to Optimum<br>"
@@ -92,14 +105,14 @@ def deviation_plot(
         "n_evaluations": "Numver of Function Evaluations",
         "n_batches": "Number of Batches",
     }
-    fig.update_layout(
-        xaxis_title=x_labels[runtime_measure],
-        yaxis_title=y_labels[outcome],
-        title=None,
-        height=300,
-        width=500,
-        margin={"l": 10, "r": 10, "t": 30, "b": 10},
+
+    fig = line_plot(
+        lines=lines,
+        backend=backend,
         template=template,
+        legend_properties={"title": "Algorithm"},
+        xlabel=x_labels[runtime_measure],
+        ylabel=y_labels[outcome],
     )
 
     return fig
